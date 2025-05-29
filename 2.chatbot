@@ -1,0 +1,95 @@
+import opennlp.tools.doccat.DoccatModel;
+import opennlp.tools.doccat.DocumentCategorizerME;
+import opennlp.tools.doccat.DocumentSample;
+import opennlp.tools.doccat.DocumentSampleStream;
+import opennlp.tools.util.InputStreamFactory;
+import opennlp.tools.util.MarkableFileInputStreamFactory;
+import opennlp.tools.util.ObjectStream;
+import opennlp.tools.util.PlainTextByLineStream;
+import opennlp.tools.util.TrainingParameters;
+import com.google.gson.Gson;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+public class SimpleChatbot {
+    private static final String TRAINING_FILE = "training_data.txt";
+    private static final String MODEL_FILE = "model.bin";
+    private DoccatModel model;
+    private Gson gson = new Gson();
+    public SimpleChatbot() throws IOException {
+        // Train model or load existing
+        File modelFile = new File(MODEL_FILE);
+        if (modelFile.exists()) {
+            try (InputStream modelIn = new FileInputStream(modelFile)) {
+                model = new DoccatModel(modelIn);
+            }
+        } else {
+            trainModel();
+        }
+    }
+
+    private void trainModel() throws IOException {
+        File trainingFile = new File(TRAINING_FILE);
+
+        if (!trainingFile.exists()) {
+            try (PrintWriter writer = new PrintWriter(trainingFile)) {
+                // Sample training data: category + text
+                writer.println("greeting Hello");
+                writer.println("greeting Hi");
+                writer.println("greeting Hey");
+                writer.println("farewell Goodbye");
+                writer.println("farewell See you later");
+                writer.println("thanks Thanks");
+                writer.println("thanks Thank you");
+            }
+        }
+
+        InputStreamFactory isf = new MarkableFileInputStreamFactory(trainingFile);
+        ObjectStream<String> lineStream = new PlainTextByLineStream(isf, StandardCharsets.UTF_8);
+        ObjectStream<DocumentSample> sampleStream = new DocumentSampleStream(lineStream);
+
+        TrainingParameters params = TrainingParameters.defaultParams();
+
+        model = DocumentCategorizerME.train("en", sampleStream, params);
+
+        // Save model
+        try (OutputStream modelOut = new BufferedOutputStream(new FileOutputStream(MODEL_FILE))) {
+            model.serialize(modelOut);
+        }
+    }
+
+    public String getResponse(String input) {
+        DocumentCategorizerME categorizer = new DocumentCategorizerME(model);
+        double[] outcomes = categorizer.categorize(input);
+        String category = categorizer.getBestCategory(outcomes);
+
+        switch (category) {
+            case "greeting":
+                return "Hello! How can I help you?";
+            case "farewell":
+                return "Goodbye! Have a great day!";
+            case "thanks":
+                return "You’re welcome!";
+            default:
+                return "Sorry, I didn't understand that.";
+        }
+    }
+
+    public static void main(String[] args) throws IOException {
+        SimpleChatbot chatbot = new SimpleChatbot();
+        Scanner scanner = new Scanner(System.in);
+
+        System.out.println("Chatbot is ready! Type 'quit' to exit.");
+
+        while (true) {
+            System.out.print("You: ");
+            String input = scanner.nextLine().trim();
+            if (input.equalsIgnoreCase("quit")) break;
+
+            String response = chatbot.getResponse(input);
+            System.out.println("Bot: " + response);
+        }
+
+        scanner.close();
+    }
+}
